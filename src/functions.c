@@ -15,7 +15,7 @@ void pushToCheckList(checkListNode **root, char clientId[256]){
 void printList(checkListNode *root){
     checkListNode *temp = root;
     while(temp!=NULL){
-        printf("%s\n",temp->clientId);
+        printf("%s CHECKED %d\n",temp->clientId, temp->checked);
         if(temp->next == NULL)
             break;
         temp = temp->next;        

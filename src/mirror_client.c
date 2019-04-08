@@ -80,11 +80,21 @@ int main(int argc, char const *argv[]){
 
 	char idFileName[53];
 	sprintf(idFileName, "%s/%d.id", commonDir, clientId);
-	FILE *idFile = fopen(idFileName, "w");
-	fprintf(idFile, "%d\n", getpid());
-	fclose(idFile);
+	if( access( idFileName, F_OK ) != -1 ){
+		//File exists
+		printf("File %s already exists... Exiting\n",idFileName);
+		exit(0);
+	}
+	else{
+		//File does not exist
+		printf("File %s does not exist\n", idFileName);
+		FILE *idFile = fopen(idFileName, "w");
+		fprintf(idFile, "%d\n", getpid());
+		fclose(idFile);
+	}
+	
 
-	 pid_t  pid1, pid2;
+	pid_t  pid1, pid2;
 
 	// pid = fork();
 	// if (pid == 0) 
@@ -104,8 +114,10 @@ int main(int argc, char const *argv[]){
 	struct dirent *de;
     DIR *dr;
 
+	int status;
 	char *tempStr = (char*)malloc(260*sizeof(char));
-  	
+  	char *myRootFifo = (char*)malloc(50*sizeof(char));
+
 	while(1){
 		printf("---------------------------------\n");
 		dr = opendir(commonDir);
@@ -132,7 +144,7 @@ int main(int argc, char const *argv[]){
 					//Check if we have already edited the clientId contained in the file
 					while(temp != NULL){						
 						sprintf(tempStr,"%s.id", temp->clientId);						
-						//printf("%s - %s\n",tempStr, de->d_name);
+						printf("%s - %s\n",tempStr, de->d_name);
 						if(!strcmp(de->d_name, tempStr)){
 							//id file exists in list, so don't push it
 							printf("File %s already exists in file list\n",de->d_name);
@@ -151,20 +163,22 @@ int main(int argc, char const *argv[]){
 
 					temp = root;
 					while(temp != NULL){
+						//printf("IN WHILE\n");
+						//printList(root);
 						//We have not visited that client ID
-						printf("CHECKED %d\n", temp->checked);
+
 						if(temp->checked == 0){
+							printf("IN\n\n");
 							pid1 = fork();
 							if (pid1 == 0){
-								//FIRST CHILD PROCESS
-								char *myRootFifo = (char*)malloc(50*sizeof(char));
+								//FIRST CHILD PROCESS								
 								sprintf(tempClientId, "%d", clientId);
-								sprintf(myRootFifo, "%s/%s-to-%s.fifo", commonDir,tempClientId, temp->clientId);
-								printf("\n%s\n", myRootFifo);
+								sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
+								//printf("\n%s\n", myRootFifo);
 								if(mkfifo(myRootFifo, 0666) < 0 ){
-									perror("fifo failed!");
+									//perror("fifo failed!");
 								}
-								temp->checked = 1;
+								//wait(&status);
 								//ChildProcess();
 							}
 							else{
@@ -172,17 +186,26 @@ int main(int argc, char const *argv[]){
 								pid2 = fork();
 								if (pid2 == 0){
 									//SECOND CHILD PROCESS
-									//ChildProcess();
+									sprintf(tempClientId, "%d", clientId);
+									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
+									//printf("\n%s\n", myRootFifo);
+									if(mkfifo(myRootFifo, 0666) < 0 ){
+										//perror("fifo failed!");
+									}
+									//wait(&status);
 								}
 								else{
-									//ParentProcess();
+									//wait(&status);
 								}
 							}
+							temp->checked = 1;
 						}
 						//We have visited that client ID
 						else{
-							printf("visited\n");
+							//printf("visited\n");
 						}
+						if(temp->next == NULL)
+							break;
 						temp = temp->next;
 					}
 				}
