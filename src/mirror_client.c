@@ -26,6 +26,46 @@ void signal_handler(){
 	exit(0);
 }
 
+void listdir(char *tempStrSend, int sendFD, const char *name){
+    DIR *dir;
+    struct dirent *entry;
+	FILE *fp;
+	int sz;
+	char c;
+
+    if (!(dir = opendir(name)))
+        return;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR) {
+            char path[1024];
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+            snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
+            //printf("%*s[%s]\n", indent, "", entry->d_name);
+            listdir(tempStrSend, sendFD, path);
+        } else {
+			fp = fopen(entry->d_name, "r");
+			// while ((c = getc(fp)) != EOF)
+			// 	putchar(c);			
+
+            printf("test %s\n",entry->d_name);
+			sprintf(tempStrSend, "%lu", strlen(entry->d_name));
+			write(sendFD, tempStrSend, 2);
+
+			write(sendFD, entry->d_name, strlen(entry->d_name));
+
+			fseek(fp, 0L, SEEK_END);
+			sz = ftell(fp);
+			fclose(fp);
+
+			sprintf(tempStrSend, "%d", sz);
+			write(sendFD, tempStrSend, 4);			
+        }
+    }
+    closedir(dir);
+}
+
 int main(int argc, char const *argv[]){
 
 	signal(SIGQUIT, signal_handler);
@@ -111,17 +151,22 @@ int main(int argc, char const *argv[]){
 
 	checkListNode *temp = root;
 
-	struct dirent *de;
-    DIR *dr;
+	struct dirent *de, *inputDirFileStruct;
+    DIR *dr, *inputDirStruct;
 
-	int status;
+	int status, sendFD, rcvFD;
 	char *tempStr = (char*)malloc(260*sizeof(char));
   	char *myRootFifo = (char*)malloc(50*sizeof(char));
+	char *tempStrRcv = (char*)malloc(50*sizeof(char));
+	char *tempStrRcvFileName = (char*)malloc(50*sizeof(char));
+	char *tempStrSend = (char*)malloc(50*sizeof(char));
+	char *receivedFileName = (char*)malloc(50*sizeof(char));
+	char *ptr;
+	int fileNameSize, fileSize;
 
 	while(1){
 		printf("---------------------------------\n");
 		dr = opendir(commonDir);
-		printList(root);
 		// opendir returns NULL if it couldn't open directory 
 		if (dr == NULL){
 			printf("Could not open current directory");
@@ -133,18 +178,15 @@ int main(int argc, char const *argv[]){
 			int len = strlen(de->d_name);
 			char *lastThree = &de->d_name[len-3];			
 			int checkExists = 0;
-						
-			
-			if(strcmp(de->d_name, ".") && strcmp(de->d_name, "..")){
 
+			if(strcmp(de->d_name, ".") && strcmp(de->d_name, "..")){
 				
 				//Get only the files ending in .id
 				if(!strcmp(lastThree, ".id")){
 					
 					//Check if we have already edited the clientId contained in the file
 					while(temp != NULL){						
-						sprintf(tempStr,"%s.id", temp->clientId);						
-						printf("%s - %s\n",tempStr, de->d_name);
+						sprintf(tempStr,"%s.id", temp->clientId);
 						if(!strcmp(de->d_name, tempStr)){
 							//id file exists in list, so don't push it
 							printf("File %s already exists in file list\n",de->d_name);
@@ -163,34 +205,48 @@ int main(int argc, char const *argv[]){
 
 					temp = root;
 					while(temp != NULL){
-						//printf("IN WHILE\n");
-						//printList(root);
-						//We have not visited that client ID
 
+						//We have not visited that client ID
 						if(temp->checked == 0){
-							printf("IN\n\n");
+
 							pid1 = fork();
 							if (pid1 == 0){
-								//FIRST CHILD PROCESS								
+								//FIRST CHILD PROCESS WITH PIPE TO SEND
 								sprintf(tempClientId, "%d", clientId);
 								sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
 								//printf("\n%s\n", myRootFifo);
 								if(mkfifo(myRootFifo, 0666) < 0 ){
 									//perror("fifo failed!");
 								}
-								//wait(&status);
-								//ChildProcess();
+
+								sendFD = open(myRootFifo, O_WRONLY);
+								//b.i.1 START
+								listdir(tempStrSend, sendFD, inputDir);
 							}
 							else{
 								//PARENT PROCESS
 								pid2 = fork();
 								if (pid2 == 0){
-									//SECOND CHILD PROCESS
+									//SECOND CHILD PROCESS WITH PIPE TO RECEIVE
 									sprintf(tempClientId, "%d", clientId);
-									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
-									//printf("\n%s\n", myRootFifo);
+									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir, temp->clientId, tempClientId);
+		
 									if(mkfifo(myRootFifo, 0666) < 0 ){
 										//perror("fifo failed!");
+									}
+									rcvFD = open(myRootFifo, O_RDONLY);
+									printf("test2\n");
+									while(read(rcvFD, tempStrRcv, 2)>0){
+										
+										fileNameSize = strtol(tempStrRcv, &ptr, 10);
+										printf("TEMPSTR LEN %d\n", fileNameSize);
+
+										read(rcvFD, receivedFileName, fileNameSize);
+										printf("RECEIVED FILE NAME %s\n",receivedFileName);
+
+										read(rcvFD, tempStrRcvFileName, 4);
+										fileSize = strtol(tempStrRcvFileName, &ptr, 10);
+										printf("RECEIVED FILE SIZE %d\n", fileSize);
 									}
 									//wait(&status);
 								}
