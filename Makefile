@@ -8,11 +8,14 @@ CFLAGS  = -g
 
 all: mirror_client
 
-mirror_client: mirror_client.o
-	$(CC) $(CFLAGS) mirror_client.o -lm -o exe/mirror_client
+mirror_client: mirror_client.o functions.o
+	$(CC) $(CFLAGS) mirror_client.o functions.o -lm -o exe/mirror_client
 
 mirror_client.o: src/mirror_client.c
 	$(CC) $(CFLAGS) -c src/mirror_client.c
+
+functions.o: src/functions.c
+	$(CC) $(CFLAGS) -c src/functions.c
 
 clean:
 	rm -fv *.o exe/*
