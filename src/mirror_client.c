@@ -26,13 +26,14 @@ void signal_handler(){
 	exit(0);
 }
 
-void listdir(char *tempStrSend, int sendFD, const char *name){
+void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]){
     DIR *dir;
     struct dirent *entry;
 	FILE *fp;
 	int sz;
 	char c[1024];
 	char tempName[1024];
+	printf("TEMPSTRSEEEEND %s NAAAAAAAAAAAAME %s\n", tempStrSend, name);
 
     if (!(dir = opendir(name)))
         return;
@@ -43,24 +44,37 @@ void listdir(char *tempStrSend, int sendFD, const char *name){
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
             snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
-            //printf("%*s[%s]\n", indent, "", entry->d_name);
-            listdir(tempStrSend, sendFD, path);
+			// printf("PAAAAAAATH %s\n",path);
+			char tempStr[1024];
+			strcpy(tempStr, path);
+
+			char *tempRestOfPath = strtok(tempStr, "/");
+			char *restOfPath = strtok(NULL,"");
+			sprintf(tempName, "%s/%s", mirrorDir, restOfPath);
+			// printf("TEMPNAMEEE %s\n", tempName);
+			mkdir(tempName, 0777);
+            listdir(tempStrSend, sendFD, path, mirrorDir);
         } else {
 			sprintf(tempName,"%s/%s",name,entry->d_name);
 			fp = fopen(tempName, "r");
-			// while ((c = getc(fp)) != EOF)
-			// 	putchar(c);			
+			
+			char tempStrFile[1024];
+			sprintf(tempStrFile, "%s/%s", name,entry->d_name);
 
-			sprintf(tempStrSend, "%lu", strlen(entry->d_name));
+			char *tempRestOfPathFile = strtok(tempStrFile, "/");
+			char *restOfPathFile = strtok(NULL,"");	
+
+			// printf("NAAAAAAAAAAAAAAAAAAAAAAME %s \n", name);
+			// printf("TEMPSTRRRRRRRRRRRRRFILE %s \n", tempStrFile);
+			sprintf(tempStrSend, "%lu", strlen(restOfPathFile));
 			write(sendFD, tempStrSend, 2);
 
-			write(sendFD, entry->d_name, strlen(entry->d_name));
+			write(sendFD, restOfPathFile, strlen(restOfPathFile));
 
 			fseek(fp, 0L, SEEK_END);
 			sz = ftell(fp);
 			fseek(fp, 0L, SEEK_SET);
-			fgets(c, 1024, fp);
-			// printf("Data from the file:\n%s", c);
+			fread(c, sz-1, 1, fp);
 			fclose(fp);
 
 			sprintf(tempStrSend, "%d", sz);
@@ -110,7 +124,7 @@ int main(int argc, char const *argv[]){
 
 	if (stat(commonDir, &st) == -1) {
 		printf("%s doesn't exist.. creating\n", commonDir);
-		mkdir(commonDir, 0700);
+		mkdir(commonDir, 0777);
 	}
 	if (stat(inputDir, &st) == -1) {
 		printf("Input Dir %s doesn't exist.. exiting\n", inputDir);
@@ -118,7 +132,7 @@ int main(int argc, char const *argv[]){
 	}
 	if (stat(mirrorDir, &st) == -1) {
 		printf("%s doesn't exist.. creating\n", mirrorDir);
-		mkdir(mirrorDir, 0700);
+		mkdir(mirrorDir, 0777);
 	}
 	else{
 		printf("Mirror dir %s exists... Exiting\n", mirrorDir);
@@ -161,15 +175,16 @@ int main(int argc, char const *argv[]){
 	struct dirent *de, *inputDirFileStruct;
     DIR *dr, *inputDirStruct;
 
-	int status, sendFD, rcvFD;
+	int status, sendFD, rcvFD, sendInputDirFD, rcvInputDirFD;
 	char *tempStr = (char*)malloc(260*sizeof(char));
   	char *myRootFifo = (char*)malloc(50*sizeof(char));
+	char *myInputDirFifo = (char*)malloc(50*sizeof(char));
 	char *tempStrRcv = (char*)malloc(50*sizeof(char));
 	char *tempStrRcvFileName = (char*)malloc(50*sizeof(char));
 	char *tempStrSend = (char*)malloc(50*sizeof(char));
 	char *receivedFileName = (char*)malloc(50*sizeof(char));
 	char *ptr;
-	char fileContents[1024],zeroBytes[2], zero[2]="00";
+	char fileContents[1024],zeroBytes[2], zero[2]="00", fopenFilePath[1024], otherInputDir[50];
 	int fileNameSize, fileSize;
 
 	logFileFP = fopen(logFile,"w+");
@@ -199,13 +214,13 @@ int main(int argc, char const *argv[]){
 						sprintf(tempStr,"%s.id", temp->clientId);
 						if(!strcmp(de->d_name, tempStr)){
 							//id file exists in list, so don't push it
-							printf("File %s already exists in file list\n",de->d_name);
+							//printf("File %s already exists in file list\n",de->d_name);
 							checkExists = 1;			
 						}			
 						temp = temp->next;
 					}
 					if(checkExists == 0){
-						printf("File %s does not exist in file list\n",de->d_name);
+						//printf("File %s does not exist in file list\n",de->d_name);
 						tempClientName = de->d_name;
 						tempClientId = strtok(de->d_name,".");
 						pushToCheckList(&root, tempClientId);
@@ -228,10 +243,17 @@ int main(int argc, char const *argv[]){
 								if(mkfifo(myRootFifo, 0666) < 0 ){
 									//perror("fifo failed!");
 								}
-
 								sendFD = open(myRootFifo, O_WRONLY);
+
+								sprintf(myInputDirFifo, "%s/input%s-to-%s.fifo", commonDir,tempClientId, temp->clientId);
+								if(mkfifo(myInputDirFifo, 0666) < 0 ){
+									//perror("fifo failed!");
+								}
+								rcvInputDirFD = open(myInputDirFifo, O_RDONLY);
+								read(rcvInputDirFD, otherInputDir, 50);
+								printf("OTHERINPUTDIIIIIIIIIIIIIIIIIIIIIIIIIIIR %s\n",otherInputDir);
 								//b.i.1 START
-								listdir(tempStrSend, sendFD, inputDir);								
+								listdir(tempStrSend, sendFD, otherInputDir, mirrorDir);
 								write(sendFD, zero, 2);
 
 							}
@@ -241,14 +263,24 @@ int main(int argc, char const *argv[]){
 								if (pid2 == 0){
 									//SECOND CHILD PROCESS WITH PIPE TO RECEIVE
 									sprintf(tempClientId, "%d", clientId);
-									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir, temp->clientId, tempClientId);
-		
+									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir, temp->clientId, tempClientId);		
 									if(mkfifo(myRootFifo, 0666) < 0 ){
 										//perror("fifo failed!");
 									}
 									rcvFD = open(myRootFifo, O_RDONLY);
-									printf("test2\n");
+
+									sprintf(myInputDirFifo, "%s/input%s-to-%s.fifo", commonDir, temp->clientId, tempClientId);
+									if(mkfifo(myInputDirFifo, 0666) < 0 ){
+										//perror("fifo failed!");
+									}
+									sendInputDirFD = open(myInputDirFifo, O_WRONLY);
+									write(sendInputDirFD, inputDir, strlen(inputDir)+1);
+
 									while(read(rcvFD, tempStrRcv, 2)>0){
+
+										memset(receivedFileName,0,strlen(receivedFileName));
+										memset(tempStrRcvFileName,0,strlen(tempStrRcvFileName));
+										memset(fileContents,0,strlen(fileContents));
 
 										if(!strcmp(tempStrRcv, "00")){
 											printf("\n%s\n",tempStrRcv);
@@ -268,6 +300,13 @@ int main(int argc, char const *argv[]){
 										read(rcvFD, fileContents, fileSize);										
 										printf("RECEIVED FILE CONTENTS %s\n", fileContents);
 
+										printf("\nBla\n");
+
+										sprintf(fopenFilePath,"%s/%s",mirrorDir,receivedFileName);
+										printf("FILEPAATH %s\n", fopenFilePath);
+										FILE *fp = fopen(fopenFilePath,"w");
+										fprintf(fp, "%s\n", fileContents);
+										fclose(fp);
 
 										fprintf(logFileFP, "Client %d sent a file with name %s and size %d\n", clientId, receivedFileName, fileSize);
 
