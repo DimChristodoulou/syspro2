@@ -31,7 +31,8 @@ void listdir(char *tempStrSend, int sendFD, const char *name){
     struct dirent *entry;
 	FILE *fp;
 	int sz;
-	char c;
+	char c[1024];
+	char tempName[1024];
 
     if (!(dir = opendir(name)))
         return;
@@ -45,11 +46,11 @@ void listdir(char *tempStrSend, int sendFD, const char *name){
             //printf("%*s[%s]\n", indent, "", entry->d_name);
             listdir(tempStrSend, sendFD, path);
         } else {
-			fp = fopen(entry->d_name, "r");
+			sprintf(tempName,"%s/%s",name,entry->d_name);
+			fp = fopen(tempName, "r");
 			// while ((c = getc(fp)) != EOF)
 			// 	putchar(c);			
 
-            printf("test %s\n",entry->d_name);
 			sprintf(tempStrSend, "%lu", strlen(entry->d_name));
 			write(sendFD, tempStrSend, 2);
 
@@ -57,13 +58,19 @@ void listdir(char *tempStrSend, int sendFD, const char *name){
 
 			fseek(fp, 0L, SEEK_END);
 			sz = ftell(fp);
+			fseek(fp, 0L, SEEK_SET);
+			fgets(c, 1024, fp);
+			// printf("Data from the file:\n%s", c);
 			fclose(fp);
 
 			sprintf(tempStrSend, "%d", sz);
-			write(sendFD, tempStrSend, 4);			
+			write(sendFD, tempStrSend, 4);
+
+			write(sendFD, c, sz);
+
         }
-    }
-    closedir(dir);
+    }	
+	closedir(dir);
 }
 
 int main(int argc, char const *argv[]){
@@ -162,7 +169,10 @@ int main(int argc, char const *argv[]){
 	char *tempStrSend = (char*)malloc(50*sizeof(char));
 	char *receivedFileName = (char*)malloc(50*sizeof(char));
 	char *ptr;
+	char fileContents[1024],zeroBytes[2], zero[2]="00";
 	int fileNameSize, fileSize;
+
+	logFileFP = fopen(logFile,"w+");
 
 	while(1){
 		printf("---------------------------------\n");
@@ -221,7 +231,9 @@ int main(int argc, char const *argv[]){
 
 								sendFD = open(myRootFifo, O_WRONLY);
 								//b.i.1 START
-								listdir(tempStrSend, sendFD, inputDir);
+								listdir(tempStrSend, sendFD, inputDir);								
+								write(sendFD, zero, 2);
+
 							}
 							else{
 								//PARENT PROCESS
@@ -237,6 +249,11 @@ int main(int argc, char const *argv[]){
 									rcvFD = open(myRootFifo, O_RDONLY);
 									printf("test2\n");
 									while(read(rcvFD, tempStrRcv, 2)>0){
+
+										if(!strcmp(tempStrRcv, "00")){
+											printf("\n%s\n",tempStrRcv);
+											break;
+										}
 										
 										fileNameSize = strtol(tempStrRcv, &ptr, 10);
 										printf("TEMPSTR LEN %d\n", fileNameSize);
@@ -247,6 +264,13 @@ int main(int argc, char const *argv[]){
 										read(rcvFD, tempStrRcvFileName, 4);
 										fileSize = strtol(tempStrRcvFileName, &ptr, 10);
 										printf("RECEIVED FILE SIZE %d\n", fileSize);
+
+										read(rcvFD, fileContents, fileSize);										
+										printf("RECEIVED FILE CONTENTS %s\n", fileContents);
+
+
+										fprintf(logFileFP, "Client %d sent a file with name %s and size %d\n", clientId, receivedFileName, fileSize);
+
 									}
 									//wait(&status);
 								}
