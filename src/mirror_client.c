@@ -11,7 +11,8 @@ int strArraySearch(char const *array[], int len, char *delim){
 }
 
 char commonDir[50], inputDir[50], mirrorDir[50], logFile[50];
-int clientId;
+char *myRootFifo;
+int clientId, sendFD, rcvFD;
 
 void signal_handler(){
 	char idFileName[53];
@@ -23,6 +24,10 @@ void signal_handler(){
 	strcat(mirrorFolder, mirrorDir);
 	system(mirrorFolder);
 
+	close(sendFD);
+	close(rcvFD);
+	remove(myRootFifo);
+
 	exit(0);
 }
 
@@ -33,7 +38,7 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 	int sz;
 	char c[1024];
 	char tempName[1024];
-	printf("TEMPSTRSEEEEND %s NAAAAAAAAAAAAME %s\n", tempStrSend, name);
+	//printf("TEMPSTRSEEEEND %s NAAAAAAAAAAAAME %s\n", tempStrSend, name);
 
     if (!(dir = opendir(name)))
         return;
@@ -53,6 +58,7 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 			sprintf(tempName, "%s/%s", mirrorDir, restOfPath);
 			// printf("TEMPNAMEEE %s\n", tempName);
 			mkdir(tempName, 0777);
+			printf("%s - %s\n",name, mirrorDir);
             listdir(tempStrSend, sendFD, path, mirrorDir);
         } else {
 			sprintf(tempName,"%s/%s",name,entry->d_name);
@@ -63,13 +69,13 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 
 			char *tempRestOfPathFile = strtok(tempStrFile, "/");
 			char *restOfPathFile = strtok(NULL,"");	
-
-			// printf("NAAAAAAAAAAAAAAAAAAAAAAME %s \n", name);
-			// printf("TEMPSTRRRRRRRRRRRRRFILE %s \n", tempStrFile);
+			printf("FILE %s - %s\n",name, mirrorDir);
 			sprintf(tempStrSend, "%lu", strlen(restOfPathFile));
 			write(sendFD, tempStrSend, 2);
+			//printf("\tWROTE TEMPSTRSEND %s \n", tempStrSend);
 
 			write(sendFD, restOfPathFile, strlen(restOfPathFile));
+			//printf("\t WROTE RESTOFPATHFILE %s \n", restOfPathFile);
 
 			fseek(fp, 0L, SEEK_END);
 			sz = ftell(fp);
@@ -79,8 +85,10 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 
 			sprintf(tempStrSend, "%d", sz);
 			write(sendFD, tempStrSend, 4);
+			//printf("\tWROTE SIZE %s\n", tempStrSend);
 
 			write(sendFD, c, sz);
+			//printf("\tWROTE FILE %s\n", c);
 
         }
     }	
@@ -175,16 +183,16 @@ int main(int argc, char const *argv[]){
 	struct dirent *de, *inputDirFileStruct;
     DIR *dr, *inputDirStruct;
 
-	int status, sendFD, rcvFD, sendInputDirFD, rcvInputDirFD;
+	int status, sendInputDirFD, rcvInputDirFD;
 	char *tempStr = (char*)malloc(260*sizeof(char));
-  	char *myRootFifo = (char*)malloc(50*sizeof(char));
+  	myRootFifo = (char*)malloc(50*sizeof(char));
 	char *myInputDirFifo = (char*)malloc(50*sizeof(char));
 	char *tempStrRcv = (char*)malloc(50*sizeof(char));
 	char *tempStrRcvFileName = (char*)malloc(50*sizeof(char));
 	char *tempStrSend = (char*)malloc(50*sizeof(char));
 	char *receivedFileName = (char*)malloc(50*sizeof(char));
 	char *ptr;
-	char fileContents[1024],zeroBytes[2], zero[2]="00", fopenFilePath[1024], otherInputDir[50];
+	char fileContents[1024],zeroBytes[2], zero[2]="00", fopenFilePath[1024], otherInputDir[50], mirrorClientPath[1024];
 	int fileNameSize, fileSize;
 
 	logFileFP = fopen(logFile,"w+");
@@ -238,12 +246,9 @@ int main(int argc, char const *argv[]){
 							if (pid1 == 0){
 								//FIRST CHILD PROCESS WITH PIPE TO SEND
 								sprintf(tempClientId, "%d", clientId);
-								sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
-								//printf("\n%s\n", myRootFifo);
-								if(mkfifo(myRootFifo, 0666) < 0 ){
-									//perror("fifo failed!");
-								}
-								sendFD = open(myRootFifo, O_WRONLY);
+
+								sprintf(mirrorClientPath,"%s/%s",mirrorDir,temp->clientId);
+								mkdir(mirrorClientPath, 0777);
 
 								sprintf(myInputDirFifo, "%s/input%s-to-%s.fifo", commonDir,tempClientId, temp->clientId);
 								if(mkfifo(myInputDirFifo, 0666) < 0 ){
@@ -251,9 +256,18 @@ int main(int argc, char const *argv[]){
 								}
 								rcvInputDirFD = open(myInputDirFifo, O_RDONLY);
 								read(rcvInputDirFD, otherInputDir, 50);
-								printf("OTHERINPUTDIIIIIIIIIIIIIIIIIIIIIIIIIIIR %s\n",otherInputDir);
+								close(rcvInputDirFD);
+
+								sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
+								//printf("\n%s\n", myRootFifo);
+								if(mkfifo(myRootFifo, 0666) < 0 ){
+									//perror("fifo failed!");
+								}
+								sendFD = open(myRootFifo, O_WRONLY);								
+
+								printf("\tOTHERINPUTDIR %s MYROOTFIFO %s\n",otherInputDir, myRootFifo);
 								//b.i.1 START
-								listdir(tempStrSend, sendFD, otherInputDir, mirrorDir);
+								listdir(tempStrSend, sendFD, otherInputDir, mirrorClientPath);
 								write(sendFD, zero, 2);
 
 							}
@@ -262,12 +276,8 @@ int main(int argc, char const *argv[]){
 								pid2 = fork();
 								if (pid2 == 0){
 									//SECOND CHILD PROCESS WITH PIPE TO RECEIVE
+
 									sprintf(tempClientId, "%d", clientId);
-									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir, temp->clientId, tempClientId);		
-									if(mkfifo(myRootFifo, 0666) < 0 ){
-										//perror("fifo failed!");
-									}
-									rcvFD = open(myRootFifo, O_RDONLY);
 
 									sprintf(myInputDirFifo, "%s/input%s-to-%s.fifo", commonDir, temp->clientId, tempClientId);
 									if(mkfifo(myInputDirFifo, 0666) < 0 ){
@@ -275,9 +285,17 @@ int main(int argc, char const *argv[]){
 									}
 									sendInputDirFD = open(myInputDirFifo, O_WRONLY);
 									write(sendInputDirFD, inputDir, strlen(inputDir)+1);
+									close(sendInputDirFD);
+
+									sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir, tempClientId, temp->clientId);		
+									if(mkfifo(myRootFifo, 0666) < 0 ){
+										//perror("fifo failed!");
+									}
+									rcvFD = open(myRootFifo, O_RDONLY);									
 
 									while(read(rcvFD, tempStrRcv, 2)>0){
 
+										//printf("\t %s TEMPSTRRECEIVE %s MYROOTFIFO\n", tempStrRcv, myRootFifo);
 										memset(receivedFileName,0,strlen(receivedFileName));
 										memset(tempStrRcvFileName,0,strlen(tempStrRcvFileName));
 										memset(fileContents,0,strlen(fileContents));
@@ -288,22 +306,20 @@ int main(int argc, char const *argv[]){
 										}
 										
 										fileNameSize = strtol(tempStrRcv, &ptr, 10);
-										printf("TEMPSTR LEN %d\n", fileNameSize);
+										printf("\t TEMPSTR LEN %d\n", fileNameSize);
 
 										read(rcvFD, receivedFileName, fileNameSize);
-										printf("RECEIVED FILE NAME %s\n",receivedFileName);
+										printf("\t RECEIVED FILE NAME %s\n",receivedFileName);
 
 										read(rcvFD, tempStrRcvFileName, 4);
 										fileSize = strtol(tempStrRcvFileName, &ptr, 10);
-										printf("RECEIVED FILE SIZE %d\n", fileSize);
+										printf("\t RECEIVED FILE SIZE %d\n", fileSize);
 
 										read(rcvFD, fileContents, fileSize);										
-										printf("RECEIVED FILE CONTENTS %s\n", fileContents);
+										printf("\t RECEIVED FILE CONTENTS %s\n", fileContents);
 
-										printf("\nBla\n");
-
-										sprintf(fopenFilePath,"%s/%s",mirrorDir,receivedFileName);
-										printf("FILEPAATH %s\n", fopenFilePath);
+										sprintf(fopenFilePath,"%s/%s/%s",mirrorDir,temp->clientId,receivedFileName);
+										//printf("\t FILEPAATH %s\n", fopenFilePath);
 										FILE *fp = fopen(fopenFilePath,"w");
 										fprintf(fp, "%s\n", fileContents);
 										fclose(fp);
