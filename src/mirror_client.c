@@ -49,16 +49,16 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
             snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
-			// printf("PAAAAAAATH %s\n",path);
+			
 			char tempStr[1024];
 			strcpy(tempStr, path);
 
 			char *tempRestOfPath = strtok(tempStr, "/");
 			char *restOfPath = strtok(NULL,"");
 			sprintf(tempName, "%s/%s", mirrorDir, restOfPath);
-			// printf("TEMPNAMEEE %s\n", tempName);
+			
 			mkdir(tempName, 0777);
-			printf("%s - %s\n",name, mirrorDir);
+
             listdir(tempStrSend, sendFD, path, mirrorDir);
         } else {
 			sprintf(tempName,"%s/%s",name,entry->d_name);
@@ -72,10 +72,8 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 			printf("FILE %s - %s\n",name, mirrorDir);
 			sprintf(tempStrSend, "%lu", strlen(restOfPathFile));
 			write(sendFD, tempStrSend, 2);
-			//printf("\tWROTE TEMPSTRSEND %s \n", tempStrSend);
 
 			write(sendFD, restOfPathFile, strlen(restOfPathFile));
-			//printf("\t WROTE RESTOFPATHFILE %s \n", restOfPathFile);
 
 			fseek(fp, 0L, SEEK_END);
 			sz = ftell(fp);
@@ -85,20 +83,23 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 
 			sprintf(tempStrSend, "%d", sz);
 			write(sendFD, tempStrSend, 4);
-			//printf("\tWROTE SIZE %s\n", tempStrSend);
 
 			write(sendFD, c, sz);
-			//printf("\tWROTE FILE %s\n", c);
 
         }
     }	
 	closedir(dir);
 }
 
+void transferComplete(){
+	printf("Transfer completed successfully\n");
+}
+
 int main(int argc, char const *argv[]){
 
 	signal(SIGQUIT, signal_handler);
 	signal(SIGINT, signal_handler);
+	signal(SIGUSR1, transferComplete);
 
 	struct stat st = {0};
     int count, bufferSize;
@@ -301,22 +302,21 @@ int main(int argc, char const *argv[]){
 										memset(fileContents,0,strlen(fileContents));
 
 										if(!strcmp(tempStrRcv, "00")){
-											printf("\n%s\n",tempStrRcv);
-											break;
+											printf("AAA \n%s\n",tempStrRcv);
+											kill(getppid(), SIGUSR1);											
+											//break;
 										}
-										
+										printf("ONE\n");
 										fileNameSize = strtol(tempStrRcv, &ptr, 10);
-										printf("\t TEMPSTR LEN %d\n", fileNameSize);
 
 										read(rcvFD, receivedFileName, fileNameSize);
-										printf("\t RECEIVED FILE NAME %s\n",receivedFileName);
 
 										read(rcvFD, tempStrRcvFileName, 4);
 										fileSize = strtol(tempStrRcvFileName, &ptr, 10);
-										printf("\t RECEIVED FILE SIZE %d\n", fileSize);
+										//printf("\t RECEIVED FILE SIZE %d\n", fileSize);
 
 										read(rcvFD, fileContents, fileSize);										
-										printf("\t RECEIVED FILE CONTENTS %s\n", fileContents);
+										//printf("\t RECEIVED FILE CONTENTS %s\n", fileContents);
 
 										sprintf(fopenFilePath,"%s/%s/%s",mirrorDir,temp->clientId,receivedFileName);
 										//printf("\t FILEPAATH %s\n", fopenFilePath);
@@ -324,13 +324,13 @@ int main(int argc, char const *argv[]){
 										fprintf(fp, "%s\n", fileContents);
 										fclose(fp);
 
-										fprintf(logFileFP, "Client %d sent a file with name %s and size %d\n", clientId, receivedFileName, fileSize);
+										fprintf(logFileFP, "Client %d received a file from client %s with name %s and size %d\n", clientId, temp->clientId, receivedFileName, fileSize);
 
 									}
 									//wait(&status);
 								}
 								else{
-									//wait(&status);
+									//MAIN PARENT PROCESS									
 								}
 							}
 							temp->checked = 1;
