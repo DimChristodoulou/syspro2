@@ -38,15 +38,18 @@ while [ $currNumOfDirs -ne $numOfDirs ]
 do
     for (( i=1; i<=$levels; i++ ))
     do
-        folderName=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
+        folderNameSize=$(( ( RANDOM % 8 )  + 1 ))
+        folderName=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $folderNameSize | head -n 1)
         mkdir "$folderName"
 	    cd "$folderName"
         if [ $currNumOfFiles -ne $numOfFiles ]
         then
             for (( j=1; j<=$robin; j++ ))
             do
-                fileName=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)
-                fileContents=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 128 | head -n 1)
+                fileNameSize=$(( ( RANDOM % 8 )  + 1 ))
+                textSize=$(( ( RANDOM % 1024 )  + 1 ))
+                fileName=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $fileNameSize | head -n 1)
+                fileContents=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $textSize | head -n 1)
                 echo $fileContents >> $fileName
                 currNumOfFiles=$(($currNumOfFiles+1))
             done

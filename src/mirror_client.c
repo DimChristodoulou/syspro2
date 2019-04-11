@@ -20,7 +20,7 @@ void signal_handler(){
 	//Removes the id file
 	remove(idFileName);
 
-	char mirrorFolder[50] = "rm -r ";
+	char mirrorFolder[50] = "rm -rf ";
 	strcat(mirrorFolder, mirrorDir);
 	system(mirrorFolder);
 
@@ -31,14 +31,14 @@ void signal_handler(){
 	exit(0);
 }
 
-void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]){
+void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50], int bufferSize){
     DIR *dir;
     struct dirent *entry;
 	FILE *fp;
 	int sz;
 	char c[1024];
 	char tempName[1024];
-	//printf("TEMPSTRSEEEEND %s NAAAAAAAAAAAAME %s\n", tempStrSend, name);
+	char line[bufferSize];
 
     if (!(dir = opendir(name)))
         return;
@@ -59,7 +59,7 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 			
 			mkdir(tempName, 0777);
 
-            listdir(tempStrSend, sendFD, path, mirrorDir);
+            listdir(tempStrSend, sendFD, path, mirrorDir, bufferSize);
         } else {
 			sprintf(tempName,"%s/%s",name,entry->d_name);
 			fp = fopen(tempName, "r");
@@ -69,7 +69,7 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 
 			char *tempRestOfPathFile = strtok(tempStrFile, "/");
 			char *restOfPathFile = strtok(NULL,"");	
-			printf("FILE %s - %s\n",name, mirrorDir);
+
 			sprintf(tempStrSend, "%lu", strlen(restOfPathFile));
 			write(sendFD, tempStrSend, 2);
 
@@ -85,6 +85,21 @@ void listdir(char *tempStrSend, int sendFD, const char *name, char mirrorDir[50]
 			write(sendFD, tempStrSend, 4);
 
 			write(sendFD, c, sz);
+
+			// FOR BUFFERSIZE
+
+			// fseek(fp, 0L, SEEK_END);
+			// sz = ftell(fp);
+			// fseek(fp, 0L, SEEK_SET);			
+			
+
+			// sprintf(tempStrSend, "%d", sz);
+			// write(sendFD, tempStrSend, 4);
+
+			// while(fgets(line, bufferSize, fp) != NULL){
+			// 	write(sendFD, line, bufferSize);
+			// }
+			// fclose(fp);
 
         }
     }	
@@ -128,8 +143,6 @@ int main(int argc, char const *argv[]){
 		printf("Error in number of arguments. Exiting.\n");
 		exit(0);
 	}
-
-	printf("Client ID %d Common Dir %s Input Dir %s Mirror Dir %s Buffer Size %d Log File %s\n",clientId, commonDir, inputDir, mirrorDir, bufferSize, logFile);
 
 	if (stat(commonDir, &st) == -1) {
 		printf("%s doesn't exist.. creating\n", commonDir);
@@ -184,7 +197,7 @@ int main(int argc, char const *argv[]){
 	struct dirent *de, *inputDirFileStruct;
     DIR *dr, *inputDirStruct;
 
-	int status, sendInputDirFD, rcvInputDirFD;
+	int status, sendInputDirFD, rcvInputDirFD, tempCount = 0, listCount;
 	char *tempStr = (char*)malloc(260*sizeof(char));
   	myRootFifo = (char*)malloc(50*sizeof(char));
 	char *myInputDirFifo = (char*)malloc(50*sizeof(char));
@@ -193,13 +206,14 @@ int main(int argc, char const *argv[]){
 	char *tempStrSend = (char*)malloc(50*sizeof(char));
 	char *receivedFileName = (char*)malloc(50*sizeof(char));
 	char *ptr;
+	char allButLastThree[1024];
 	char fileContents[1024],zeroBytes[2], zero[2]="00", fopenFilePath[1024], otherInputDir[50], mirrorClientPath[1024];
 	int fileNameSize, fileSize;
+	char line[bufferSize];
 
 	logFileFP = fopen(logFile,"w+");
 
-	while(1){
-		printf("---------------------------------\n");
+	while(1){		
 		dr = opendir(commonDir);
 		// opendir returns NULL if it couldn't open directory 
 		if (dr == NULL){
@@ -223,13 +237,11 @@ int main(int argc, char const *argv[]){
 						sprintf(tempStr,"%s.id", temp->clientId);
 						if(!strcmp(de->d_name, tempStr)){
 							//id file exists in list, so don't push it
-							//printf("File %s already exists in file list\n",de->d_name);
 							checkExists = 1;			
 						}			
 						temp = temp->next;
 					}
 					if(checkExists == 0){
-						//printf("File %s does not exist in file list\n",de->d_name);
 						tempClientName = de->d_name;
 						tempClientId = strtok(de->d_name,".");
 						pushToCheckList(&root, tempClientId);
@@ -260,15 +272,13 @@ int main(int argc, char const *argv[]){
 								close(rcvInputDirFD);
 
 								sprintf(myRootFifo, "%s/id%s-to-id%s.fifo", commonDir,tempClientId, temp->clientId);
-								//printf("\n%s\n", myRootFifo);
 								if(mkfifo(myRootFifo, 0666) < 0 ){
 									//perror("fifo failed!");
 								}
 								sendFD = open(myRootFifo, O_WRONLY);								
 
-								printf("\tOTHERINPUTDIR %s MYROOTFIFO %s\n",otherInputDir, myRootFifo);
 								//b.i.1 START
-								listdir(tempStrSend, sendFD, otherInputDir, mirrorClientPath);
+								listdir(tempStrSend, sendFD, otherInputDir, mirrorClientPath, bufferSize);
 								write(sendFD, zero, 2);
 
 							}
@@ -296,33 +306,39 @@ int main(int argc, char const *argv[]){
 
 									while(read(rcvFD, tempStrRcv, 2)>0){
 
-										//printf("\t %s TEMPSTRRECEIVE %s MYROOTFIFO\n", tempStrRcv, myRootFifo);
 										memset(receivedFileName,0,strlen(receivedFileName));
 										memset(tempStrRcvFileName,0,strlen(tempStrRcvFileName));
 										memset(fileContents,0,strlen(fileContents));
 
 										if(!strcmp(tempStrRcv, "00")){
-											printf("AAA \n%s\n",tempStrRcv);
 											kill(getppid(), SIGUSR1);											
 											//break;
 										}
-										printf("ONE\n");
 										fileNameSize = strtol(tempStrRcv, &ptr, 10);
 
 										read(rcvFD, receivedFileName, fileNameSize);
 
 										read(rcvFD, tempStrRcvFileName, 4);
 										fileSize = strtol(tempStrRcvFileName, &ptr, 10);
-										//printf("\t RECEIVED FILE SIZE %d\n", fileSize);
 
 										read(rcvFD, fileContents, fileSize);										
-										//printf("\t RECEIVED FILE CONTENTS %s\n", fileContents);
 
 										sprintf(fopenFilePath,"%s/%s/%s",mirrorDir,temp->clientId,receivedFileName);
-										//printf("\t FILEPAATH %s\n", fopenFilePath);
 										FILE *fp = fopen(fopenFilePath,"w");
 										fprintf(fp, "%s\n", fileContents);
-										fclose(fp);
+										fclose(fp);									
+
+										// FOR BUFFERSIZE
+										// sprintf(fopenFilePath,"%s/%s/%s",mirrorDir,temp->clientId,receivedFileName);
+										// FILE *fp = fopen(fopenFilePath,"w");
+										// while(line!=NULL){
+										// 	read(rcvFD, line, bufferSize);
+										// 	printf("READ %s %d\n",line, bufferSize);
+										// 	fprintf(fp, "%s", line);
+										// 	memset(line,0,strlen(line));
+										// }
+										// printf("\t\t\tEXIT\n");
+										// fclose(fp);
 
 										fprintf(logFileFP, "Client %d received a file from client %s with name %s and size %d\n", clientId, temp->clientId, receivedFileName, fileSize);
 
@@ -337,14 +353,44 @@ int main(int argc, char const *argv[]){
 						}
 						//We have visited that client ID
 						else{
-							//printf("visited\n");
+							//MAIN PARENT PROCESS
 						}
 						if(temp->next == NULL)
 							break;
 						temp = temp->next;
-					}
+					}					
 				}
 			}			
+		}		
+		listCount = countListItems(root);		
+
+		temp = root;
+		while(temp!=NULL){			
+			tempCount = 0;
+			closedir(dr);
+			dr = opendir(commonDir);
+			while ((de = readdir(dr)) != NULL){
+
+				int len = strlen(de->d_name);
+				char *lastThree = &de->d_name[len-3];	
+				
+				if(!strcmp(lastThree, ".id")){
+					char allButLastThree = de->d_name[len-4];
+
+					if(temp->clientId[0] == allButLastThree)
+						tempCount++;					
+				}
+
+			}			
+			if(tempCount == 0){				
+				fprintf(logFileFP, "CLIENT %s HAS DISSAPEARED\n", temp->clientId);
+				sprintf(tempStr, "rm -rf %s/%s", mirrorDir, temp->clientId);
+				system(tempStr);
+				deleteNode(&root, temp->clientId);
+			}
+			if(temp->next == NULL)
+				break;
+			temp=temp->next;			
 		}
 		sleep(4);
 		closedir(dr);
